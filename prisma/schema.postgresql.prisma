@@ -1,0 +1,169 @@
+// ────────────────────────────────────────────────────────
+// RMA Finance WhatsApp Bot - PostgreSQL Schema (for Vercel)
+// ────────────────────────────────────────────────────────
+// This schema is for Vercel deployment with PostgreSQL (Neon/Vercel Postgres).
+// To use: Replace prisma/schema.prisma with this file before deploying.
+// Or set DATABASE_URL to your Neon PostgreSQL URL and run: npx prisma db push
+// ────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Client Master Data (from RAW DATA sheets) ───
+model Client {
+  id              String   @id @default(cuid())
+  clientCode      String   @unique                        // e.g. HOACPL-F25F-TL01, SSIAPL-F25F-CC46
+  clientName      String                                   // Hindustan Oil, Shree Shakti Iron...
+  mobileNumber    String?                                  // WhatsApp number
+  email           String?
+  concernedPerson String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  projects       Project[]
+  whatsappUsers  WhatsAppUser[]
+}
+
+// ─── Project Data (from RAW DATA + NEW DASH) ───
+model Project {
+  id              String   @id @default(cuid())
+  clientId        String
+  projectName     String                                  // CC, Fresh CC, Takeover cum CC Enhancement...
+  proposalType    String?                                 // Enhancement, Fresh, LAP, TL, BG...
+  teamLeaderId    String?                                 // TeamLeader ID
+  teamEngaged     String?                                 // e.g. "I - Danesh Sir, II - Danesh Sir"
+  setSentVia      String?                                 // File, Email
+
+  // Financial amounts (in Cr)
+  termLoanAmt     Float    @default(0)
+  ccAmt           Float    @default(0)
+  bgAmt           Float    @default(0)
+  lcAmt           Float    @default(0)
+  odAmt           Float    @default(0)
+  lapAmt          Float    @default(0)
+  lcWcdlAmt       Float    @default(0)                    // Sublimit of CC - L/C(WCDL)
+  totalLoanAmount Float    @default(0)                    // Total loan amount
+  loanAppliedFor  Float    @default(0)
+
+  // Attachment & codes
+  attachmentUrl   String?
+  clientJobCode   String?                                  // e.g. HOACPL-F25F-TL01
+  mailStatus      String?
+
+  // Overall completion
+  completionPct   Float    @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  client          Client       @relation(fields: [clientId], references: [id])
+  teamLeader      TeamLeader?  @relation(fields: [teamLeaderId], references: [id])
+  steps           ProjectStep[]
+  banks           ProjectBank[]
+}
+
+// ─── Project Steps (from NEW DASH - Step columns) ───
+model ProjectStep {
+  id          String   @id @default(cuid())
+  projectId   String
+  stepNumber  Int                                      // 1-15+
+  stepName    String                                   // P-CL, S-CL, CL3, CL4, CL5, CL6, Set Prep, Project Report, BN, Search, Valuation, TEV, DDR, Query, Sanction Letter, Doc, PDC, Disburse, Post Disbuse. Cond.
+  status      String   @default("pending")             // pending, in_process, done, na
+  dateValue   String?                                  // Date if applicable e.g. "16/10"
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project     Project  @relation(fields: [projectId], references: [id])
+}
+
+// ─── Project Bank Details (from RAW DATA2) ───
+model ProjectBank {
+  id                    String   @id @default(cuid())
+  projectId             String
+  bankName              String                                   // e.g. Punjab National Bank
+  branchName            String?                                  // e.g. CBB, MCC1
+  bankRelationshipMgr   String?                                  // Bank RM name
+  loanAmount            Float    @default(0)                     // Loan amount for this bank
+  attachment            String?                                  // Attachment URL
+  bankAndBranch         String?                                  // Combined "Bank – Branch"
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  project               Project  @relation(fields: [projectId], references: [id])
+}
+
+// ─── Team Leader ───
+model TeamLeader {
+  id                    String   @id @default(cuid())
+  name                  String
+  mobileNumber          String?                                  // WhatsApp number
+  totalProjectsInHand   Int      @default(0)
+  workCompletionPct     Float    @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  projects     Project[]
+  whatsappUsers WhatsAppUser[]
+}
+
+// ─── WhatsApp User Registration ───
+model WhatsAppUser {
+  id            String    @id @default(cuid())
+  phone         String    @unique                        // WhatsApp phone number with country code
+  name          String?
+  role          String    @default("client")             // client, team_leader, admin
+  clientId      String?                                  // If role=client
+  teamLeaderId  String?                                  // If role=team_leader
+  isRegistered  Boolean   @default(false)
+  registeredAt  DateTime?
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  client        Client?      @relation(fields: [clientId], references: [id])
+  teamLeader    TeamLeader?  @relation(fields: [teamLeaderId], references: [id])
+  chatMessages  ChatMessage[]
+}
+
+// ─── Chat Message Log ───
+model ChatMessage {
+  id              String   @id @default(cuid())
+  whatsappUserId  String
+  direction       String                                   // incoming, outgoing
+  messageText     String?
+  messageType     String   @default("text")                // text, image, document, menu
+  payload         String?                                  // JSON for structured data
+  createdAt       DateTime @default(now())
+
+  whatsappUser WhatsAppUser @relation(fields: [whatsappUserId], references: [id])
+}
+
+// ─── Maytapi Configuration ───
+model MaytapiConfig {
+  id            String   @id @default(cuid())
+  apiKey        String                                   // Maytapi API key
+  productId     String                                   // Maytapi Product ID
+  phoneId       String?                                  // Maytapi Phone ID (after scanning)
+  webhookUrl    String?                                  // Webhook URL for incoming messages
+  isActive      Boolean  @default(true)
+  phoneNumber   String?                                  // RMA Finance WhatsApp number
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ─── Google Sheets Sync Log ───
+model SyncLog {
+  id          String   @id @default(cuid())
+  sheetName   String                                   // RAW DATA, RAW DATA2, NEW DASH
+  status      String                                   // success, error
+  recordsSynced Int     @default(0)
+  errors      String?                                  // Error details
+  syncAt      DateTime @default(now())
+}
